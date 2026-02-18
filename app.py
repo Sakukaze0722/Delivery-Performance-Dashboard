@@ -6,9 +6,10 @@ from datetime import datetime
 import pandas as pd
 import streamlit as st
 
-from src.charts import make_delay_hist, make_delay_map, make_top_categories
+from src.charts import make_delay_hist, make_delay_map, make_importance_bar, make_top_categories
 from src.config import PROCESSED_DATA_DIR, RAW_DATA_DIR
 from src.metrics import apply_filters, compute_kpis, group_geo
+from src.models import get_delay_feature_importance, load_delay_model, predict_delay
 from src.styles import inject_css
 from src.transform import get_fact_orders
 
@@ -35,6 +36,12 @@ def load_fact_orders():
         processed_dir=str(PROCESSED_DATA_DIR),
         use_cache_file=True,
     )
+
+
+@st.cache_resource
+def get_delay_model():
+    """Load delay prediction model once and cache."""
+    return load_delay_model()
 
 
 df = load_fact_orders()
@@ -147,8 +154,8 @@ else:
         fig_hist = make_delay_hist(df_filtered)
         st.plotly_chart(fig_hist, width="stretch")
 
-    # Tabs: Root causes and Data table
-    tab1, tab2 = st.tabs(["Root Causes", "Data Table"])
+    # Tabs: Root causes, Data table, Prediction / Models
+    tab1, tab2, tab3 = st.tabs(["Root Causes", "Data Table", "Prediction / Models"])
 
     with tab1:
         fig_cats = make_top_categories(df_filtered)
@@ -165,3 +172,41 @@ else:
             file_name="fact_orders.csv",
             mime="text/csv",
         )
+
+    with tab3:
+        delay_model = get_delay_model()
+        if delay_model is None:
+            st.info(
+                "No delay prediction model found. Run from project root: "
+                "`python scripts/train_models.py`"
+            )
+        else:
+            st.subheader("Delay prediction")
+            st.caption(
+                "Select an order from the filtered data to predict expected delay (days)."
+            )
+            order_ids = df_filtered["order_id"].astype(str).tolist()
+            if not order_ids:
+                st.warning("No orders in filtered data to select.")
+            else:
+                selected_id = st.selectbox(
+                    "Order ID",
+                    options=order_ids,
+                    key="pred_order_id",
+                )
+                if selected_id:
+                    row = df_filtered.loc[df_filtered["order_id"].astype(str) == selected_id]
+                    if not row.empty:
+                        row = row.iloc[[0]]
+                        if st.button("Predict delay", key="pred_btn"):
+                            pred = predict_delay(delay_model, row)
+                            days = float(pred.iloc[0])
+                            st.metric("Predicted delay (days)", f"{days:.1f}")
+                            if "delay_days" in row.columns and pd.notna(row["delay_days"].iloc[0]):
+                                actual = float(row["delay_days"].iloc[0])
+                                st.caption(f"Actual delay (if delivered): {actual:.1f} days")
+            imp_df = get_delay_feature_importance(delay_model) if delay_model is not None else None
+            if imp_df is not None and not imp_df.empty:
+                st.subheader("Feature importance")
+                fig_imp = make_importance_bar(imp_df)
+                st.plotly_chart(fig_imp, use_container_width=True)

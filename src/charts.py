@@ -158,3 +158,26 @@ def make_top_categories(df: pd.DataFrame):
         yaxis_tickformat=".0%",
     )
     return fig
+
+
+def make_importance_bar(imp_df: pd.DataFrame):
+    """
+    Create a horizontal bar chart of feature importance for the delay model.
+    imp_df must have columns 'feature' and 'importance'.
+    """
+    if imp_df is None or imp_df.empty:
+        return _empty_figure("Feature Importance", "No importance data")
+    if "feature" not in imp_df.columns or "importance" not in imp_df.columns:
+        return _empty_figure("Feature Importance", "Missing feature or importance column")
+    # Show top 20 to avoid clutter
+    plot_df = imp_df.head(20)
+    fig = px.bar(
+        plot_df,
+        x="importance",
+        y="feature",
+        orientation="h",
+        labels={"importance": "Importance", "feature": "Feature"},
+        title="Delay Model Feature Importance (Top 20)",
+    )
+    fig.update_layout(yaxis={"categoryorder": "total ascending"}, margin={"l": 120})
+    return fig
